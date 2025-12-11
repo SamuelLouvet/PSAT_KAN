@@ -2,15 +2,33 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-def relu_max_reduce_last_dim(x: torch.Tensor) -> torch.Tensor:
+
+def _to_2tuple(x):
+    if isinstance(x, tuple):
+        return x
+    return (x, x)
+
+
+def kan_pairwise_max(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
-    Reduces the last dimension of x using:
-        max(a, b) = b + relu(a - b)
+    Pairwise max with two explicit layers:
+      - layer 1: linear mix to form a-b (and carry b)
+      - layer 2: apply relu on (a-b) and sum with b
+
+    max(a, b) = b + relu(a - b)
+    """
+    diff = a - b
+    relu_diff = F.relu(diff)
+    return b + relu_diff
+
+
+def kan_max_reduce_last_dim(x: torch.Tensor) -> torch.Tensor:
+    """
+    Reduce last dim by repeated pairwise max using the two-step
+    (a-b) -> relu -> b+relu construction.
 
     x: (..., n)
-
-    Return:
-        (...,) = max value across the last dimension
+    Return: (...,)
     """
     while x.size(-1) > 1:
         n = x.size(-1)
@@ -26,9 +44,8 @@ def relu_max_reduce_last_dim(x: torch.Tensor) -> torch.Tensor:
         a = x[..., 0::2]
         b = x[..., 1::2]
 
-        # Pairwise maximum via ReLU
-        # max(a, b) = b + relu(a - b)
-        x = b + F.relu(a - b)
+        # Pairwise maximum via two-layer KAN construction
+        x = kan_pairwise_max(a, b)
 
         # Append the saved element if needed
         if last is not None:
@@ -38,16 +55,10 @@ def relu_max_reduce_last_dim(x: torch.Tensor) -> torch.Tensor:
     return x.squeeze(-1)
 
 
-def _to_2tuple(x):
-    if isinstance(x, tuple):
-        return x
-    return (x, x)
-    
-
 class ReLUMaxPool2dKAN(nn.Module):
     """
-    MaxPool2d built entirely from ReLU + linear tensor operations
-    (KAN-compatible, no F.max_pool2d).
+    MaxPool2d built from repeated pairwise maxima:
+    layer1 (a-b), layer2 relu(a-b) + b (no F.max_pool2d).
     """
 
     def __init__(self, kernel_size=2, stride=None, padding=0):
@@ -81,9 +92,9 @@ class ReLUMaxPool2dKAN(nn.Module):
         patches = patches.view(B, C, n, -1)
         patches = patches.permute(0, 1, 3, 2)
 
-        # 3) Compute max over window dimension (n) via ReLU
+        # 3) Compute max over window dimension (n) via KAN pairwise max
         # Result: (B, C, L)
-        y = relu_max_reduce_last_dim(patches)
+        y = kan_max_reduce_last_dim(patches)
 
         # 4) Reshape to target spatial size
         H_out = (H + 2 * pH - kH) // sH + 1
