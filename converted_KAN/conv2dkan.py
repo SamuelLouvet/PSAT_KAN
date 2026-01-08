@@ -1,46 +1,54 @@
-# file: lowlevel_conv2d.py
-
-from typing import Tuple, Union
+import math
 import torch
-from torch import nn
+import torch.nn as nn
 import torch.nn.functional as F
 
 
-def _pair(x: Union[int, Tuple[int, int]]) -> Tuple[int, int]:
+def _to_2tuple(x):
     if isinstance(x, tuple):
         return x
     return (x, x)
 
 
 class Conv2dKAN(nn.Module):
+    """
+    Conv2d implemented via unfold + batched matmul
+    (KAN-compatible; avoids torch.nn.functional.conv2d).
+    """
 
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size: Union[int, Tuple[int, int]],
-        stride: Union[int, Tuple[int, int]] = 1,
-        padding: Union[int, Tuple[int, int]] = 0,
-        dilation: Union[int, Tuple[int, int]] = 1,
+        kernel_size,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups: int = 1,
         bias: bool = True,
-    ) -> None:
+    ):
         super().__init__()
-
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.kernel_size = _pair(kernel_size)
-        self.stride = _pair(stride)
-        self.padding = _pair(padding)
-        self.dilation = _pair(dilation)
+        self.kernel_size = _to_2tuple(kernel_size)
+        self.stride = _to_2tuple(stride)
+        self.padding = _to_2tuple(padding)
+        self.dilation = _to_2tuple(dilation)
+        self.groups = groups
 
-        kh, kw = self.kernel_size
+        if in_channels % groups != 0:
+            raise ValueError("in_channels must be divisible by groups")
+        if out_channels % groups != 0:
+            raise ValueError("out_channels must be divisible by groups")
 
-        # (out_channels, in_channels, kh, kw)
         self.weight = nn.Parameter(
-            torch.empty(out_channels, in_channels, kh, kw)
+            torch.empty(
+                out_channels,
+                in_channels // groups,
+                self.kernel_size[0],
+                self.kernel_size[1],
+            )
         )
-
-        #  (out_channels,)
         if bias:
             self.bias = nn.Parameter(torch.empty(out_channels))
         else:
@@ -48,51 +56,64 @@ class Conv2dKAN(nn.Module):
 
         self.reset_parameters()
 
-    def reset_parameters(self) -> None:
-        nn.init.kaiming_uniform_(self.weight, a=5 ** 0.5)
+    def reset_parameters(self):
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         if self.bias is not None:
-            fan_in = self.in_channels * self.kernel_size[0] * self.kernel_size[1]
-            bound = 1 / (fan_in ** 0.5)
+            fan_in = (
+                (self.in_channels // self.groups)
+                * self.kernel_size[0]
+                * self.kernel_size[1]
+            )
+            bound = 1 / math.sqrt(fan_in)
             nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        x: (N, C_in, H, W)
-        Retour: (N, C_out, H_out, W_out)
+        x: (B, C_in, H, W)
         """
-        N, C_in, H, W = x.shape
-        assert C_in == self.in_channels, "Nombre de canaux d'entrée incorrect."
+        if x.dim() != 4:
+            raise ValueError("Conv2dKAN expects input of shape (B, C, H, W)")
 
-        kh, kw = self.kernel_size
-        sh, sw = self.stride
-        ph, pw = self.padding
-        dh, dw = self.dilation
+        B, C, H, W = x.shape
+        if C != self.in_channels:
+            raise ValueError(
+                f"Expected input with {self.in_channels} channels, got {C}"
+            )
 
-        # transforme chaque patch (C_in * kh * kw) en colonne
-        # x_unfold: (N, C_in * kh * kw, L) où L = H_out * W_out
-        x_unfold = F.unfold(
+        kH, kW = self.kernel_size
+        sH, sW = self.stride
+        pH, pW = self.padding
+        dH, dW = self.dilation
+
+        # 1) Extract sliding local blocks
+        patches = F.unfold(
             x,
-            kernel_size=self.kernel_size,
-            dilation=self.dilation,
-            padding=self.padding,
-            stride=self.stride,
-        )
+            kernel_size=(kH, kW),
+            dilation=(dH, dW),
+            padding=(pH, pW),
+            stride=(sH, sW),
+        )  # (B, C_in*kH*kW, L)
 
-        # weight_flat: (C_out, C_in * kh * kw)
-        weight_flat = self.weight.view(self.out_channels, -1)
+        L = patches.shape[-1]
+        cin_g = self.in_channels // self.groups
+        cout_g = self.out_channels // self.groups
 
-        # x_unfold: (N, C_in*kh*kw, L)
-        # weight_flat: (C_out, C_in*kh*kw)
-        out = torch.matmul(weight_flat.unsqueeze(0), x_unfold)  # (N, C_out, L)
+        # 2) Reshape for grouped matmul
+        patches = patches.view(B, self.groups, cin_g * kH * kW, L)
+        weight = self.weight.view(self.groups, cout_g, cin_g * kH * kW)
+
+        # 3) Batched matmul over each group
+        out = torch.einsum("bgil,goi->bgol", patches, weight)
 
         if self.bias is not None:
-            out = out + self.bias.view(1, -1, 1)
+            out = out + self.bias.view(self.groups, cout_g).unsqueeze(0).unsqueeze(-1)
 
-        H_out = (H + 2 * ph - dh * (kh - 1) - 1) // sh + 1
-        W_out = (W + 2 * pw - dw * (kw - 1) - 1) // sw + 1
-
-        out = out.view(N, self.out_channels, H_out, W_out)
+        # 4) Restore spatial layout
+        H_out = (H + 2 * pH - dH * (kH - 1) - 1) // sH + 1
+        W_out = (W + 2 * pW - dW * (kW - 1) - 1) // sW + 1
+        out = out.reshape(B, self.out_channels, H_out, W_out)
         return out
 
 
-
+# Backward-compatible alias
+Conv2d = Conv2dKAN

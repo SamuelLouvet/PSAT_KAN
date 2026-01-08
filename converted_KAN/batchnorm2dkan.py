@@ -12,29 +12,15 @@ class BatchNorm2d(nn.Module):
         num_features: int,
         eps: float = 1e-5,
         momentum: float = 0.1,
-        affine: bool = True,
-        track_running_stats: bool = True,
     ) -> None:
         super().__init__()
 
         self.num_features = num_features
         self.eps = eps
         self.momentum = momentum
-        self.affine = affine
-        self.track_running_stats = track_running_stats
 
-        if self.affine:
-            # gamma et beta
-            self.weight = nn.Parameter(torch.ones(num_features))
-            self.bias = nn.Parameter(torch.zeros(num_features))
-        else:
-            self.register_parameter("weight", None)
-            self.register_parameter("bias", None)
-
-        
-        self.register_buffer("running_mean", None)
-        self.register_buffer("running_var", None)
-        self.register_buffer("num_batches_tracked", None)
+        self.weight = nn.Parameter(torch.ones(num_features))
+        self.bias = nn.Parameter(torch.zeros(num_features))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -49,7 +35,7 @@ class BatchNorm2d(nn.Module):
 
         mean = mean.view(1, C, 1, 1)
         var = var.view(1, C, 1, 1)
-        x_hat = (x - mean) / torch.sqrt(var + self.eps)
+        x_hat = (x - mean) / torch.sqrt(var + self.eps) #TODO change the division look in the pdf paper (a+b)^2 + (a-b)^2/4
 
         gamma = self.weight.view(1, C, 1, 1)
         beta = self.bias.view(1, C, 1, 1)
