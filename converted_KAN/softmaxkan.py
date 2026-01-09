@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from .relumaxpool2d import kan_max_reduce_last_dim
+
 
 def kan_square(x: torch.Tensor) -> torch.Tensor:
     """
@@ -66,6 +68,29 @@ def kan_division(a: torch.Tensor, b: torch.Tensor, eps: float = 1e-8) -> torch.T
     return kan_multiply(a, b_recip)
 
 
+def kan_max(x: torch.Tensor, dim: int = -1, keepdim: bool = True) -> torch.Tensor:
+    """
+    KAN-style max reduction using pairwise max on the selected dimension.
+    """
+    if dim < 0:
+        dim = x.dim() + dim
+    if dim < 0 or dim >= x.dim():
+        raise ValueError(f"dim out of range: {dim}")
+
+    if dim != x.dim() - 1:
+        perm = [d for d in range(x.dim()) if d != dim] + [dim]
+        x = x.permute(*perm)
+        reduced = kan_max_reduce_last_dim(x)
+        if keepdim:
+            reduced = reduced.unsqueeze(-1)
+            inv_perm = [perm.index(i) for i in range(len(perm))]
+            reduced = reduced.permute(*inv_perm)
+        return reduced
+
+    reduced = kan_max_reduce_last_dim(x)
+    return reduced.unsqueeze(-1) if keepdim else reduced
+
+
 class DivisionKAN(nn.Module):
     """
     Division layer expressed as KAN operations.
@@ -117,9 +142,8 @@ class SoftmaxKAN(nn.Module):
         Returns: softmax along specified dimension
         """
         if self.stable:
-            # Stable softmax: subtract max for numerical stability
-            # max can be expressed as KAN layers (similar to max-pooling)
-            x_max = x.max(dim=self.dim, keepdim=True).values
+            # Stable softmax: subtract max for numerical stability (KAN-style max)
+            x_max = kan_max(x, dim=self.dim, keepdim=True)
             x_shifted = x - x_max
         else:
             x_shifted = x

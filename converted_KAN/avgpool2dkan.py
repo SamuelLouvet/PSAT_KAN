@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.fx.proxy import Proxy
+
+from .softmaxkan import kan_division
 
 
 def _to_2tuple(x):
@@ -27,7 +30,10 @@ class AvgPool2dKAN(nn.Module):
         """
         x: (B, C, H, W)
         """
-        B, C, H, W = x.shape
+        if isinstance(x, Proxy):
+            B, C, H, W = x.shape
+        else:
+            B, C, H, W = x.shape
         kH, kW = self.kernel_size
         sH, sW = self.stride
         pH, pW = self.padding
@@ -52,8 +58,8 @@ class AvgPool2dKAN(nn.Module):
         y = patches.sum(dim=-1)
 
         if self.count_include_pad:
-            divisor = float(n)
-            y = y * (1.0 / divisor)
+            divisor = torch.full((1, 1, 1), float(n), device=x.device, dtype=x.dtype)
+            y = kan_division(y, divisor)
         else:
             # Compute per-location element counts (ignoring padded zeros)
             ones = torch.ones(
@@ -66,7 +72,7 @@ class AvgPool2dKAN(nn.Module):
                 stride=(sH, sW)
             )  # (1, n, L)
             counts = counts.sum(dim=1).view(1, 1, -1)  # (1, 1, L)
-            y = y / counts
+            y = kan_division(y, counts)
 
         # 4) Reshape to target spatial size
         H_out = (H + 2 * pH - kH) // sH + 1

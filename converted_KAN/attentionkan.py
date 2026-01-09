@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 from .softmaxkan import kan_square, kan_scale_quarter, kan_multiply, SoftmaxKAN
+from .linearkan import LinearKAN
 
 
 def kan_scale(x: torch.Tensor, scale: float) -> torch.Tensor:
@@ -102,13 +103,13 @@ class AttentionKAN(nn.Module):
         # Scale factor: 1/sqrt(d_k) as a constant for unary scaling
         self.scale = 1.0 / math.sqrt(self.head_dim)
 
-        # Q, K, V projections (standard linear, weights are unary functions f(x) = wx)
-        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.k_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.v_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        # Q, K, V projections using KAN linear layers
+        self.q_proj = LinearKAN(embed_dim, embed_dim, bias=bias)
+        self.k_proj = LinearKAN(embed_dim, embed_dim, bias=bias)
+        self.v_proj = LinearKAN(embed_dim, embed_dim, bias=bias)
 
         # Output projection
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.out_proj = LinearKAN(embed_dim, embed_dim, bias=bias)
 
         # KAN Softmax
         self.softmax = SoftmaxKAN(dim=-1, eps=eps)

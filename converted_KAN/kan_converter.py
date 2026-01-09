@@ -4,6 +4,7 @@ from .conv2dkan import Conv2dKAN
 from .avgpool2dkan import AvgPool2dKAN
 from .relumaxpool2d import ReLUMaxPool2dKAN
 from .linearkan import LinearKAN
+from .batchnorm2dkan import AffineKAN
 
 class KanConverter:
     def __init__(self):
@@ -12,6 +13,7 @@ class KanConverter:
             nn.AvgPool2d: self._convert_avgpool2d,
             nn.MaxPool2d: self._convert_maxpool2d,
             nn.Linear: self._convert_linear,
+            nn.BatchNorm2d: self._convert_batchnorm2d,
         }
 
     def convert_model(self, model: nn.Module) -> nn.Module:
@@ -84,4 +86,25 @@ class KanConverter:
             if layer.bias is not None:
                 kan_layer.bias.data = layer.bias.data.clone()
         
+        return kan_layer
+
+    def _convert_batchnorm2d(self, layer: nn.BatchNorm2d) -> AffineKAN:
+        if layer.running_mean is None or layer.running_var is None:
+            raise ValueError("BatchNorm2d must have running stats for conversion.")
+
+        with torch.no_grad():
+            if layer.affine:
+                weight = layer.weight.data.clone()
+                bias = layer.bias.data.clone()
+            else:
+                weight = torch.ones_like(layer.running_mean)
+                bias = torch.zeros_like(layer.running_mean)
+
+            denom = torch.sqrt(layer.running_var + layer.eps)
+            scale = weight / denom
+            shift = bias - layer.running_mean * scale
+
+        kan_layer = AffineKAN(scale=scale, bias=shift).to(
+            device=layer.running_mean.device, dtype=layer.running_mean.dtype
+        )
         return kan_layer

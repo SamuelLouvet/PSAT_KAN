@@ -1,6 +1,9 @@
 import math
 import torch
 import torch.nn as nn
+from torch.fx.proxy import Proxy
+
+from .softmaxkan import kan_multiply
 
 
 class LinearKAN(nn.Module):
@@ -32,12 +35,15 @@ class LinearKAN(nn.Module):
         """
         x: (..., in_features)
         """
-        if x.size(-1) != self.in_features:
-            raise ValueError(
-                f"Expected input features {self.in_features}, got {x.size(-1)}"
-            )
+        if not isinstance(x, Proxy):
+            if x.size(-1) != self.in_features:
+                raise ValueError(
+                    f"Expected input features {self.in_features}, got {x.size(-1)}"
+                )
 
-        out = x.matmul(self.weight.t())
+        # KAN-style matmul: sum_i kan_multiply(x_i, w_ji)
+        x_exp = x.unsqueeze(-2)
+        out = kan_multiply(x_exp, self.weight).sum(dim=-1)
         if self.bias is not None:
             out = out + self.bias
         return out

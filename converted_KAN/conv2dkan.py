@@ -2,12 +2,19 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.fx.proxy import Proxy
+
+from .softmaxkan import kan_multiply
 
 
 def _to_2tuple(x):
     if isinstance(x, tuple):
         return x
     return (x, x)
+
+
+def _is_fx_proxy(x) -> bool:
+    return isinstance(x, Proxy)
 
 
 class Conv2dKAN(nn.Module):
@@ -71,14 +78,16 @@ class Conv2dKAN(nn.Module):
         """
         x: (B, C_in, H, W)
         """
-        if x.dim() != 4:
-            raise ValueError("Conv2dKAN expects input of shape (B, C, H, W)")
-
-        B, C, H, W = x.shape
-        if C != self.in_channels:
-            raise ValueError(
-                f"Expected input with {self.in_channels} channels, got {C}"
-            )
+        if not _is_fx_proxy(x):
+            if x.dim() != 4:
+                raise ValueError("Conv2dKAN expects input of shape (B, C, H, W)")
+            B, C, H, W = x.shape
+            if C != self.in_channels:
+                raise ValueError(
+                    f"Expected input with {self.in_channels} channels, got {C}"
+                )
+        else:
+            B, C, H, W = x.shape
 
         kH, kW = self.kernel_size
         sH, sW = self.stride
@@ -102,8 +111,11 @@ class Conv2dKAN(nn.Module):
         patches = patches.view(B, self.groups, cin_g * kH * kW, L)
         weight = self.weight.view(self.groups, cout_g, cin_g * kH * kW)
 
-        # 3) Batched matmul over each group
-        out = torch.einsum("bgil,goi->bgol", patches, weight)
+        # 3) KAN-style matmul over each group
+        # patches: (B, g, K, L), weight: (g, O, K)
+        patches_exp = patches.unsqueeze(2)  # (B, g, 1, K, L)
+        weight_exp = weight.unsqueeze(0).unsqueeze(-1)  # (1, g, O, K, 1)
+        out = kan_multiply(patches_exp, weight_exp).sum(dim=-2)  # (B, g, O, L)
 
         if self.bias is not None:
             out = out + self.bias.view(self.groups, cout_g).unsqueeze(0).unsqueeze(-1)

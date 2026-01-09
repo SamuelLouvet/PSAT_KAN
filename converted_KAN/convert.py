@@ -11,6 +11,7 @@ from converted_KAN.conv2dkan import Conv2dKAN
 from converted_KAN.linearkan import LinearKAN
 from converted_KAN.avgpool2dkan import AvgPool2dKAN
 from converted_KAN.relumaxpool2d import ReLUMaxPool2dKAN
+from converted_KAN.batchnorm2dkan import AffineKAN
 
 
 def _clone_conv2d(module: nn.Conv2d) -> Conv2dKAN:
@@ -76,6 +77,27 @@ def _clone_maxpool2d(module: nn.MaxPool2d) -> ReLUMaxPool2dKAN:
     )
 
 
+def _clone_batchnorm2d(module: nn.BatchNorm2d) -> AffineKAN:
+    if module.running_mean is None or module.running_var is None:
+        raise ValueError("BatchNorm2d must have running stats for conversion.")
+
+    with torch.no_grad():
+        if module.affine:
+            weight = module.weight.data.clone()
+            bias = module.bias.data.clone()
+        else:
+            weight = torch.ones_like(module.running_mean)
+            bias = torch.zeros_like(module.running_mean)
+
+        denom = torch.sqrt(module.running_var + module.eps)
+        scale = weight / denom
+        shift = bias - module.running_mean * scale
+
+    return AffineKAN(scale=scale, bias=shift).to(
+        device=module.running_mean.device, dtype=module.running_mean.dtype
+    )
+
+
 def _convert_leaf(module: nn.Module) -> nn.Module:
     if isinstance(module, Conv2dKAN):
         return module
@@ -94,6 +116,8 @@ def _convert_leaf(module: nn.Module) -> nn.Module:
         return _clone_avgpool2d(module)
     if isinstance(module, nn.MaxPool2d):
         return _clone_maxpool2d(module)
+    if isinstance(module, nn.BatchNorm2d):
+        return _clone_batchnorm2d(module)
 
     return module
 
@@ -107,6 +131,7 @@ def convert_to_kan(module: nn.Module, inplace: bool = False) -> nn.Module:
       - nn.Linear -> LinearKAN
       - nn.AvgPool2d -> AvgPool2dKAN (ceil_mode=False, count_include_pad=False)
       - nn.MaxPool2d -> ReLUMaxPool2dKAN (ceil_mode=False, dilation=1)
+      - nn.BatchNorm2d -> AffineKAN (running stats folded)
     """
     root = module if inplace else copy.deepcopy(module)
 
