@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.fx.proxy import Proxy
 
-from .softmaxkan import kan_multiply
+from .softmaxkan import MultiplyKAN, SumKAN
 
 
 def _to_2tuple(x):
@@ -61,6 +61,9 @@ class Conv2dKAN(nn.Module):
         else:
             self.bias = None
 
+        self.multiply = MultiplyKAN()
+        self.sum_k = SumKAN(dim=-2, keepdim=False)
+
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -73,6 +76,14 @@ class Conv2dKAN(nn.Module):
             )
             bound = 1 / math.sqrt(fan_in)
             nn.init.uniform_(self.bias, -bound, bound)
+
+    def extra_repr(self) -> str:
+        return (
+            f"{self.in_channels}, {self.out_channels}, "
+            f"kernel_size={self.kernel_size}, stride={self.stride}, "
+            f"padding={self.padding}, dilation={self.dilation}, "
+            f"groups={self.groups}, bias={self.bias is not None}"
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -115,7 +126,7 @@ class Conv2dKAN(nn.Module):
         # patches: (B, g, K, L), weight: (g, O, K)
         patches_exp = patches.unsqueeze(2)  # (B, g, 1, K, L)
         weight_exp = weight.unsqueeze(0).unsqueeze(-1)  # (1, g, O, K, 1)
-        out = kan_multiply(patches_exp, weight_exp).sum(dim=-2)  # (B, g, O, L)
+        out = self.sum_k(self.multiply(patches_exp, weight_exp))  # (B, g, O, L)
 
         if self.bias is not None:
             out = out + self.bias.view(self.groups, cout_g).unsqueeze(0).unsqueeze(-1)

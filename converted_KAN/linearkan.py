@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from torch.fx.proxy import Proxy
 
-from .softmaxkan import kan_multiply
+from .softmaxkan import MultiplyKAN, SumKAN
 
 
 class LinearKAN(nn.Module):
@@ -15,6 +15,9 @@ class LinearKAN(nn.Module):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
+
+        self.multiply = MultiplyKAN()
+        self.sum_in = SumKAN(dim=-1, keepdim=False)
 
         self.weight = nn.Parameter(torch.empty(out_features, in_features))
         if bias:
@@ -31,6 +34,13 @@ class LinearKAN(nn.Module):
             bound = 1 / math.sqrt(fan_in)
             nn.init.uniform_(self.bias, -bound, bound)
 
+    def extra_repr(self) -> str:
+        return (
+            f"in_features={self.in_features}, "
+            f"out_features={self.out_features}, "
+            f"bias={self.bias is not None}"
+        )
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         x: (..., in_features)
@@ -43,7 +53,7 @@ class LinearKAN(nn.Module):
 
         # KAN-style matmul: sum_i kan_multiply(x_i, w_ji)
         x_exp = x.unsqueeze(-2)
-        out = kan_multiply(x_exp, self.weight).sum(dim=-1)
+        out = self.sum_in(self.multiply(x_exp, self.weight))
         if self.bias is not None:
             out = out + self.bias
         return out

@@ -7,6 +7,7 @@ from functools import reduce
 from typing import Any, Dict, Iterable, Tuple
 
 import torch
+import torch.nn as nn
 import torch.fx as fx
 from torch.fx.passes.shape_prop import ShapeProp
 
@@ -118,6 +119,52 @@ def _to_2tuple(x: Any) -> Tuple[int, int]:
     return (int(x), int(x))
 
 
+def _mha_counts(module: nn.MultiheadAttention, in_shape: Tuple[int, ...]) -> OpCounts:
+    if len(in_shape) != 3:
+        return OpCounts()
+
+    if module.batch_first:
+        batch, seq, embed = in_shape
+    else:
+        seq, batch, embed = in_shape
+
+    if embed % module.num_heads != 0:
+        return OpCounts()
+
+    heads = module.num_heads
+    head_dim = embed // heads
+
+    counts = OpCounts()
+
+    qkv_out = 3 * embed
+    qkv_muls = batch * seq * qkv_out * embed
+    qkv_adds = batch * seq * qkv_out * max(embed - 1, 0)
+    if module.in_proj_bias is not None:
+        qkv_adds += batch * seq * qkv_out
+
+    attn_muls = batch * heads * seq * seq * head_dim
+    attn_adds = batch * heads * seq * seq * max(head_dim - 1, 0)
+    scale_divs = batch * heads * seq * seq
+
+    softmax_exp = batch * heads * seq * seq
+    softmax_adds = batch * heads * seq * max(seq - 1, 0)
+    softmax_divs = batch * heads * seq * seq
+
+    attn_out_muls = batch * heads * seq * head_dim * seq
+    attn_out_adds = batch * heads * seq * head_dim * max(seq - 1, 0)
+
+    out_muls = batch * seq * embed * embed
+    out_adds = batch * seq * embed * max(embed - 1, 0)
+    if module.out_proj.bias is not None:
+        out_adds += batch * seq * embed
+
+    counts.muls = qkv_muls + attn_muls + attn_out_muls + out_muls
+    counts.adds = qkv_adds + attn_adds + softmax_adds + attn_out_adds + out_adds
+    counts.divs = scale_divs + softmax_divs
+    counts.exp = softmax_exp
+    return counts
+
+
 def _load_model(spec: str) -> torch.nn.Module:
     module_name, _, attr = spec.partition(":")
     if not module_name or not attr:
@@ -138,9 +185,79 @@ def count_ops(
     dtype: torch.dtype = torch.float32,
     per_layer: bool = False,
 ) -> Dict[str, Any]:
+    model = model.eval()
+    if not any(model.children()):
+        class _RootWrapper(nn.Module):
+            def __init__(self, inner: nn.Module) -> None:
+                super().__init__()
+                self.inner = inner
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return self.inner(x)
+
+        model = _RootWrapper(model)
+
     model = model.to(device=device, dtype=dtype).eval()
 
     example_input = torch.zeros(input_shape, device=device, dtype=dtype)
+
+    fixed_max_modules: list[tuple[Any, Any]] = []
+    try:
+        from .softmaxkan import MaxKAN
+
+        # Pass 1: trace + shape-prop without any fixed-n patching so we can infer
+        # the true tensor shapes at each MaxKAN call site.
+        gm0 = fx.symbolic_trace(model)
+        ShapeProp(gm0).propagate(example_input)
+
+        patch_targets: Dict[str, int] = {}
+        for node in gm0.graph.nodes:
+            # When MaxKAN is traced through, FX records the owning module in
+            # nn_module_stack; the actual reduction becomes a torch.amax call.
+            if node.op != "call_function":
+                continue
+            if node.target is not torch.amax:
+                continue
+            stack = node.meta.get("nn_module_stack")
+            if not stack:
+                continue
+
+            owner_path, (_, owner_type) = list(stack.items())[-1]
+            if owner_type is not MaxKAN:
+                continue
+
+            inp = node.args[0] if node.args else None
+            in_meta = _get_meta(inp) if isinstance(inp, fx.Node) else None
+            if in_meta is None:
+                continue
+            in_shape = _as_int_tuple(in_meta.shape)
+            if not in_shape:
+                continue
+
+            # MaxKAN uses dim=-1 in FX tracing mode; use that to infer n.
+            n = int(in_shape[-1])
+            if n <= 0:
+                continue
+            patch_targets[str(owner_path)] = n
+
+        # Apply fixed-n reduction to the original model modules (by path) and record
+        # previous settings for restoration.
+        for path, n in patch_targets.items():
+            try:
+                mod = model.get_submodule(path)
+            except Exception:
+                continue
+            if not isinstance(mod, MaxKAN):
+                continue
+            if getattr(mod, "fixed_reduce", None) is not None:
+                continue
+            prev_n = getattr(mod, "n", None)
+            mod.configure_fixed_n(n)
+            fixed_max_modules.append((mod, prev_n))
+    except Exception:
+        fixed_max_modules = []
+
+    # Pass 2: trace + shape-prop with fixed-n MaxKAN enabled (where applicable).
     gm = fx.symbolic_trace(model)
     ShapeProp(gm).propagate(example_input)
 
@@ -183,12 +300,26 @@ def count_ops(
                 _accumulate("exp", out_numel)
             elif tgt in (torch.relu, torch.nn.functional.relu, torch.Tensor.relu, "relu"):
                 _accumulate("relu", out_numel)
+            elif tgt in (torch.clamp, torch.Tensor.clamp, "clamp"):
+                _accumulate("relu", out_numel)
             elif tgt in (torch.reciprocal, torch.Tensor.reciprocal, "reciprocal"):
                 _accumulate("reciprocal", out_numel)
             elif tgt in (torch.sqrt, torch.Tensor.sqrt, "sqrt"):
                 _accumulate("sqrt", out_numel)
-            elif tgt in (torch.maximum, torch.max, "maximum", "max"):
-                _accumulate("max", out_numel)
+            elif tgt in (torch.maximum, "maximum"):
+                _accumulate("compare", out_numel)
+            elif tgt in (torch.max, torch.amax, torch.Tensor.amax, "max", "amax"):
+                if tgt is torch.max and len(node.args) > 1:
+                    other = node.args[1]
+                    other_meta = _get_meta(other) if isinstance(other, fx.Node) else None
+                    if other_meta is not None:
+                        _accumulate("compare", out_numel)
+                        continue
+                inp = node.args[0]
+                in_meta = _get_meta(inp) if isinstance(inp, fx.Node) else None
+                in_shape = _as_int_tuple(in_meta.shape) if in_meta is not None else ()
+                if in_shape:
+                    _accumulate("compare", _sum_reduction_counts(in_shape, _as_int_tuple(meta.shape)))
             elif tgt in (operator.pow, torch.pow, torch.Tensor.pow, "pow"):
                 _accumulate("pow", out_numel)
             elif tgt in (torch.sum, torch.Tensor.sum, "sum"):
@@ -260,6 +391,15 @@ def count_ops(
                 if in_shape:
                     _accumulate("adds", _sum_reduction_counts(in_shape, _as_int_tuple(meta.shape)))
                 _accumulate("divs", out_numel)
+            elif isinstance(module, nn.MultiheadAttention):
+                inp = node.args[0]
+                in_meta = _get_meta(inp) if isinstance(inp, fx.Node) else None
+                in_shape = _as_int_tuple(in_meta.shape) if in_meta is not None else ()
+                counts_mha = _mha_counts(module, in_shape)
+                _accumulate("adds", counts_mha.adds)
+                _accumulate("muls", counts_mha.muls)
+                _accumulate("divs", counts_mha.divs)
+                _accumulate("exp", counts_mha.exp)
             continue
 
 
@@ -268,6 +408,12 @@ def count_ops(
         result["per_layer"] = {
             name: layer_counts.as_dict() for name, layer_counts in per_layer_counts.items()
         }
+
+    for module, prev_n in fixed_max_modules:
+        try:
+            module.configure_fixed_n(prev_n)
+        except Exception:
+            pass
     return result
 
 

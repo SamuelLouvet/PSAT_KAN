@@ -8,26 +8,29 @@ from .softmaxkan import (
     Softmax,
     DivisionKAN,
     Division,
+    MultiplyKAN,
+    ReciprocalKAN,
+    MaxKAN,
+    ExpKAN,
+    SumKAN,
     kan_multiply,
     kan_division,
     kan_reciprocal,
     kan_square,
     kan_scale_quarter,
 )
+from .relumaxpool2d import PairwiseMaxKAN, MaxReduceLastDimFixedKAN
 from .attentionkan import (
     AttentionKAN,
     Attention,
     SelfAttentionKAN,
     SelfAttention,
+    MatMulKAN,
+    ScaleKAN,
     kan_matmul,
     kan_batched_matmul,
     kan_scale,
 )
 from .convert import convert_to_kan, to_kan
-from .quantization import quantize_model, quantize_tensor
-from .accuracy_cost import evaluate_accuracy, accuracy_cost_sweep
-from .int_ops import quantize_to_int, dequantize_from_int, kan_multiply_int
-from .int_layers import LinearKANInt, Conv2dKANInt, ReLUInt
-from .int_convert import convert_to_int_kan, IntKANWrapper
 
 BatchNorm2d = AffineKAN

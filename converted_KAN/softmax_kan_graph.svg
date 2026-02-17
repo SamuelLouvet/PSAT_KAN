@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L6,3 z" fill="#ffffff" />
+    </marker>
+    <style><![CDATA[
+      .panel { fill:#1e1e1e; stroke:#c0c0c0; stroke-width:1; }
+      .node { fill:#1e1e1e; stroke:#ffffff; stroke-width:1.5; }
+      .text { fill:#ffffff; font-family: Helvetica, Arial, sans-serif; font-size:14px; }
+      .label { fill:#1e1e1e; stroke:#ffffff; stroke-width:1.2; }
+      .subtext { fill:#ffffff; font-family: Helvetica, Arial, sans-serif; font-size:12px; }
+      .sep { stroke:#ffffff; stroke-width:1; stroke-dasharray:4 4; }
+      .arrow { stroke:#ffffff; stroke-width:1.5; marker-end:url(#arrow); }
+    ]]></style>
+  </defs>
+
+  <!-- Panel -->
+  <rect x="100" y="60" width="600" height="820" class="panel" />
+
+  <!-- Title box -->
+  <rect x="120" y="80" width="170" height="26" class="label" />
+  <text x="135" y="98" class="text" font-weight="bold">SoftmaxKAN</text>
+
+  <!-- Layer separators -->
+  <line x1="130" y1="300" x2="670" y2="300" class="sep" />
+  <line x1="130" y1="520" x2="670" y2="520" class="sep" />
+
+  <!-- Layer labels -->
+  <rect x="560" y="250" width="90" height="26" class="label" />
+  <text x="575" y="268" class="subtext">1st layer</text>
+
+  <rect x="560" y="410" width="90" height="26" class="label" />
+  <text x="575" y="428" class="subtext">2nd layer</text>
+
+  <rect x="560" y="620" width="90" height="26" class="label" />
+  <text x="575" y="638" class="subtext">3rd layer</text>
+
+  <!-- Nodes -->
+  <circle cx="360" cy="150" r="26" class="node" />
+  <text x="352" y="155" class="text">x1</text>
+
+  <circle cx="440" cy="150" r="26" class="node" />
+  <text x="432" y="155" class="text">x2</text>
+
+  <ellipse cx="400" cy="230" rx="45" ry="26" class="node" />
+  <text x="375" y="235" class="text">KAN max</text>
+
+  <ellipse cx="400" cy="320" rx="55" ry="26" class="node" />
+  <text x="370" y="325" class="text">x - max</text>
+
+  <circle cx="360" cy="410" r="26" class="node" />
+  <text x="347" y="415" class="text">exp</text>
+
+  <circle cx="440" cy="410" r="26" class="node" />
+  <text x="427" y="415" class="text">exp</text>
+
+  <polygon points="400,470 430,495 400,520 370,495" class="node" />
+  <text x="388" y="500" class="text">sum</text>
+
+  <ellipse cx="400" cy="600" rx="65" ry="26" class="node" />
+  <text x="360" y="605" class="text">reciprocal</text>
+
+  <polygon points="350,680 385,710 350,740 315,710" class="node" />
+  <text x="305" y="715" class="text">KAN multiply</text>
+
+  <polygon points="450,680 485,710 450,740 415,710" class="node" />
+  <text x="405" y="715" class="text">KAN multiply</text>
+
+  <ellipse cx="340" cy="820" rx="32" ry="26" class="node" />
+  <text x="332" y="825" class="text">y1</text>
+
+  <ellipse cx="460" cy="820" rx="32" ry="26" class="node" />
+  <text x="452" y="825" class="text">y2</text>
+
+  <!-- Stability note -->
+  <rect x="480" y="330" width="160" height="22" class="label" />
+  <text x="490" y="346" class="subtext">stable: x - max(x)</text>
+
+  <!-- Arrows -->
+  <line x1="360" y1="176" x2="392" y2="205" class="arrow" />
+  <line x1="440" y1="176" x2="408" y2="205" class="arrow" />
+  <line x1="400" y1="256" x2="400" y2="294" class="arrow" />
+  <line x1="360" y1="176" x2="385" y2="304" class="arrow" />
+  <line x1="440" y1="176" x2="415" y2="304" class="arrow" />
+  <line x1="400" y1="346" x2="360" y2="384" class="arrow" />
+  <line x1="400" y1="346" x2="440" y2="384" class="arrow" />
+  <line x1="360" y1="436" x2="390" y2="470" class="arrow" />
+  <line x1="440" y1="436" x2="410" y2="470" class="arrow" />
+  <line x1="400" y1="520" x2="400" y2="574" class="arrow" />
+  <line x1="400" y1="626" x2="350" y2="680" class="arrow" />
+  <line x1="400" y1="626" x2="450" y2="680" class="arrow" />
+  <line x1="360" y1="436" x2="340" y2="680" class="arrow" />
+  <line x1="440" y1="436" x2="460" y2="680" class="arrow" />
+  <line x1="350" y1="740" x2="340" y2="794" class="arrow" />
+  <line x1="450" y1="740" x2="460" y2="794" class="arrow" />
+</svg>

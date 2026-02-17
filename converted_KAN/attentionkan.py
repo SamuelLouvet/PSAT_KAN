@@ -1,8 +1,16 @@
 import math
 import torch
 import torch.nn as nn
+from torch.fx.proxy import Proxy
 
-from .softmaxkan import kan_square, kan_scale_quarter, kan_multiply, SoftmaxKAN
+from .softmaxkan import (
+    kan_square,
+    kan_scale_quarter,
+    kan_multiply,
+    MultiplyKAN,
+    SumKAN,
+    SoftmaxKAN,
+)
 from .linearkan import LinearKAN
 
 
@@ -11,6 +19,40 @@ def kan_scale(x: torch.Tensor, scale: float) -> torch.Tensor:
     Unary function: x * scale (linear scaling)
     """
     return x * scale
+
+
+class ScaleKAN(nn.Module):
+    """
+    Unary scaling wrapped as a module (for per-layer FX accounting).
+    """
+
+    def __init__(self, scale: float):
+        super().__init__()
+        self.scale = float(scale)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return kan_scale(x, self.scale)
+
+
+class MatMulKAN(nn.Module):
+    """
+    KAN-style matmul as explicit stages:
+      - elementwise MultiplyKAN on broadcasted pairs
+      - SumKAN over the K dimension
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.multiply = MultiplyKAN()
+        self.sum_k = SumKAN(dim=-2, keepdim=False)
+
+    def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        # a: (..., M, K)
+        # b: (..., K, N)
+        a_expanded = a.unsqueeze(-1)  # (..., M, K, 1)
+        b_expanded = b.unsqueeze(-3)  # (..., 1, K, N)
+        products = self.multiply(a_expanded, b_expanded)  # (..., M, K, N)
+        return self.sum_k(products)  # (..., M, N)
 
 
 def kan_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -102,6 +144,7 @@ class AttentionKAN(nn.Module):
 
         # Scale factor: 1/sqrt(d_k) as a constant for unary scaling
         self.scale = 1.0 / math.sqrt(self.head_dim)
+        self.scale_op = ScaleKAN(self.scale)
 
         # Q, K, V projections using KAN linear layers
         self.q_proj = LinearKAN(embed_dim, embed_dim, bias=bias)
@@ -116,6 +159,9 @@ class AttentionKAN(nn.Module):
 
         # Dropout (optional, not part of KAN but useful for training)
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+
+        # KAN matmul stages
+        self.matmul = MatMulKAN()
 
     def forward(
         self,
@@ -151,13 +197,15 @@ class AttentionKAN(nn.Module):
         # Step 2: Q @ K^T using KAN matrix multiplication
         # Q: (B, H, S_q, D), K^T: (B, H, D, S_k)
         K_t = K.transpose(-2, -1)  # (B, H, D, S_k)
-        attn_scores = kan_batched_matmul(Q, K_t)  # (B, H, S_q, S_k)
+        attn_scores = self.matmul(Q, K_t)  # (B, H, S_q, S_k)
 
         # Step 3: Scale by 1/sqrt(d_k) - unary scaling function
-        attn_scores = kan_scale(attn_scores, self.scale)
+        attn_scores = self.scale_op(attn_scores)
 
         # Apply attention mask if provided
-        if attn_mask is not None:
+        # Note: FX tracing passes optional args as Proxy placeholders; avoid
+        # Python control-flow on Proxy values for traceability in ops counting.
+        if attn_mask is not None and not isinstance(attn_mask, Proxy):
             if attn_mask.dim() == 2:
                 attn_mask = attn_mask.unsqueeze(0).unsqueeze(0)
             attn_scores = attn_scores + attn_mask
@@ -170,7 +218,7 @@ class AttentionKAN(nn.Module):
 
         # Step 5: attn_weights @ V using KAN matrix multiplication
         # attn_weights: (B, H, S_q, S_k), V: (B, H, S_k, D)
-        output = kan_batched_matmul(attn_weights, V)  # (B, H, S_q, D)
+        output = self.matmul(attn_weights, V)  # (B, H, S_q, D)
 
         # Reshape back: (B, H, S_q, D) -> (B, S_q, H, D) -> (B, S_q, E)
         output = output.transpose(1, 2).contiguous().view(B, S_q, E)

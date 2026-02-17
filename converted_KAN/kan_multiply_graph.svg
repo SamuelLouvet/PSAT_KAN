@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="350" height="550" viewBox="0 0 350 550">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L6,3 z" fill="#ffffff" />
+    </marker>
+    <style><![CDATA[
+      .panel { fill:#1e1e1e; stroke:#c0c0c0; stroke-width:1; }
+      .node { fill:#1e1e1e; stroke:#ffffff; stroke-width:1.5; }
+      .text { fill:#ffffff; font-family: Helvetica, Arial, sans-serif; font-size:14px; }
+      .label { fill:#1e1e1e; stroke:#ffffff; stroke-width:1.2; }
+      .subtext { fill:#ffffff; font-family: Helvetica, Arial, sans-serif; font-size:11px; }
+      .sep { stroke:#ffffff; stroke-width:1; stroke-dasharray:4 4; }
+      .arrow { stroke:#ffffff; stroke-width:1.5; marker-end:url(#arrow); fill:none; }
+      .title { fill:#f5a623; font-family: Helvetica, Arial, sans-serif; font-size:14px; font-weight:bold; }
+      .formula { fill:#ffffff; font-family: Helvetica, Arial, sans-serif; font-size:10px; }
+    ]]></style>
+  </defs>
+
+  <!-- Panel -->
+  <rect x="15" y="15" width="320" height="520" class="panel" />
+
+  <!-- Title -->
+  <text x="100" y="45" class="title">d) MULTIPLY LAYER</text>
+
+  <!-- Formula box -->
+  <rect x="220" y="55" width="100" height="35" class="label" />
+  <text x="230" y="70" class="formula">4ab = (a+b)² - (a-b)²</text>
+  <text x="230" y="82" class="formula">ab = result × 0.25</text>
+
+  <!-- Layer separators -->
+  <line x1="30" y1="175" x2="320" y2="175" class="sep" />
+  <line x1="30" y1="290" x2="320" y2="290" class="sep" />
+
+  <!-- Layer labels -->
+  <rect x="250" y="145" width="65" height="20" class="label" />
+  <text x="260" y="159" class="subtext">1st layer</text>
+
+  <rect x="250" y="245" width="65" height="20" class="label" />
+  <text x="260" y="259" class="subtext">2nd layer</text>
+
+  <rect x="250" y="380" width="65" height="20" class="label" />
+  <text x="260" y="394" class="subtext">3rd layer</text>
+
+  <!-- Input nodes -->
+  <circle cx="100" cy="90" r="20" class="node" />
+  <text x="94" y="95" class="text">a</text>
+
+  <circle cx="230" cy="90" r="20" class="node" />
+  <text x="224" y="95" class="text">b</text>
+
+  <!-- Layer 1: Unary functions -->
+  <circle cx="60" cy="145" r="16" class="node" />
+  <text x="47" y="150" class="subtext">id(a)</text>
+
+  <circle cx="140" cy="145" r="16" class="node" />
+  <text x="120" y="150" class="subtext">neg(b)</text>
+
+  <circle cx="270" cy="145" r="16" class="node" />
+  <text x="257" y="150" class="subtext">id(b)</text>
+
+  <!-- Layer 1: Addition nodes (diamonds) -->
+  <polygon points="100,200 122,225 100,250 78,225" class="node" />
+  <text x="94" y="230" class="text">+</text>
+
+  <polygon points="200,200 222,225 200,250 178,225" class="node" />
+  <text x="194" y="230" class="text">+</text>
+
+  <!-- Labels for sum results -->
+  <text x="58" y="268" class="subtext">a + b</text>
+  <text x="208" y="268" class="subtext">a - b</text>
+
+  <!-- Layer 2: Square functions -->
+  <circle cx="100" cy="330" r="20" class="node" />
+  <text x="90" y="335" class="text">x²</text>
+
+  <circle cx="200" cy="330" r="20" class="node" />
+  <text x="190" y="335" class="text">x²</text>
+
+  <!-- Layer 3: Subtraction (diamond) -->
+  <polygon points="150,400 172,425 150,450 128,425" class="node" />
+  <text x="145" y="430" class="text">-</text>
+
+  <!-- Layer 3: Scale by 0.25 -->
+  <ellipse cx="150" cy="485" rx="30" ry="16" class="node" />
+  <text x="132" y="490" class="subtext">×0.25</text>
+
+  <!-- Output -->
+  <ellipse cx="150" cy="520" rx="30" ry="14" class="node" />
+  <text x="132" y="524" class="subtext">output</text>
+
+  <!-- Arrows -->
+  <!-- a to id(a) -->
+  <line x1="85" y1="105" x2="68" y2="129" class="arrow" />
+
+  <!-- b to neg(b) -->
+  <line x1="215" y1="105" x2="152" y2="132" class="arrow" />
+
+  <!-- b to id(b) -->
+  <line x1="245" y1="105" x2="262" y2="129" class="arrow" />
+
+  <!-- id(a) to first + -->
+  <line x1="68" y1="161" x2="88" y2="200" class="arrow" />
+
+  <!-- neg(b) to first + -->
+  <line x1="132" y1="161" x2="112" y2="200" class="arrow" />
+
+  <!-- id(a) to second + -->
+  <line x1="68" y1="161" x2="188" y2="200" class="arrow" />
+
+  <!-- id(b) to second + -->
+  <line x1="262" y1="161" x2="212" y2="200" class="arrow" />
+
+  <!-- First + to first x² -->
+  <line x1="100" y1="250" x2="100" y2="310" class="arrow" />
+
+  <!-- Second + to second x² -->
+  <line x1="200" y1="250" x2="200" y2="310" class="arrow" />
+
+  <!-- First x² to - -->
+  <line x1="115" y1="345" x2="138" y2="400" class="arrow" />
+
+  <!-- Second x² to - -->
+  <line x1="185" y1="345" x2="162" y2="400" class="arrow" />
+
+  <!-- - to ×0.25 -->
+  <line x1="150" y1="450" x2="150" y2="469" class="arrow" />
+
+  <!-- ×0.25 to output -->
+  <line x1="150" y1="501" x2="150" y2="506" class="arrow" />
+</svg>
