@@ -42,7 +42,7 @@ class AffineKAN(nn.Module):
         scale = self.scale.view(1, C, 1, 1)
         bias = self.bias.view(1, C, 1, 1)
         y = self.mul(x, scale)
-        # Keep the "functions then sum" structure: sum two terms via a reduction.
+        # Affine Teil als "zwei Terme + Summe" aufgebaut
         stacked = torch.stack((y, bias), dim=0)
         return self.sum_terms(stacked)
 

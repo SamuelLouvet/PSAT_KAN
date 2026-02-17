@@ -18,17 +18,13 @@ class KanConverter:
 
     def convert_model(self, model: nn.Module) -> nn.Module:
         self._replace_layers_recursive(model)
-        print(model)
         return model
 
     def _replace_layers_recursive(self, module: nn.Module):
         for name, child in module.named_children():
             child_type = type(child)
             
-            print(f"Propcessing layer: {name} ({child_type.__name__})")
-
             if child_type in self.replacement_map:
-                print(f"  -> Converting {child_type.__name__} to KAN version...")
                 converter_func = self.replacement_map[child_type]
                 new_layer = converter_func(child)
                 setattr(module, name, new_layer)
@@ -64,8 +60,7 @@ class KanConverter:
         return kan_layer
 
     def _convert_maxpool2d(self, layer: nn.MaxPool2d) -> ReLUMaxPool2dKAN:
-        # Note: ReLUMaxPool2dKAN signature: kernel_size, stride=None, padding=0
-        # ReLUMaxPool2dKAN might not support dilation, return_indices, ceil_mode
+        # Wir übernehmen nur Parameter, die das KAN-Pendant wirklich nutzt.
         kan_layer = ReLUMaxPool2dKAN(
             kernel_size=layer.kernel_size,
             stride=layer.stride,
@@ -80,7 +75,7 @@ class KanConverter:
             bias=(layer.bias is not None)
         )
         
-        # Copy weights
+        # Gewichte/Bias 1:1 übertragen
         with torch.no_grad():
             kan_layer.weight.data = layer.weight.data.clone()
             if layer.bias is not None:

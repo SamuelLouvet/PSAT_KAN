@@ -143,5 +143,5 @@ def convert_to_kan(module: nn.Module, inplace: bool = False) -> nn.Module:
     return _convert(root)
 
 
-# Alias for symmetry
+# Alias für konsistente Benennung
 to_kan = convert_to_kan

@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from converted_KAN.kan_converter import KanConverter
 
-# Check device
+# Gerät wählen (GPU falls verfügbar)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
@@ -29,11 +29,10 @@ def evaluate_model(model, loader, name="Model"):
 def main():
     BATCH_SIZE = 128
     
-    # 1. Load Data (CIFAR-10 Test Set only)
+    # 1) Testdaten laden (nur CIFAR-10 Testsplit)
     print("Preparing Data...")
     
-    # ResNet models typically expect specific normalization
-    # Using standard CIFAR-10 mean/std
+    # Standard-Normalisierung für CIFAR-10
     normalize = transforms.Normalize(
         mean=[0.4914, 0.4822, 0.4465],
         std=[0.2470, 0.2435, 0.2616]
@@ -49,9 +48,9 @@ def main():
     testloader = DataLoader(testset, batch_size=BATCH_SIZE,
                             shuffle=False, num_workers=0)
 
-    # 2. Load Pre-trained Model
+    # 2) Vortrainiertes Modell laden
     print("\n=== Loading Pre-trained ResNet20 ===")
-    # Using the same repo as the notebook
+    # Gleiche Quelle wie im Notebook
     repo = "chenyaofo/pytorch-cifar-models"
     model_name = "cifar10_resnet20"
     
@@ -63,10 +62,10 @@ def main():
         return
 
     print("Original Model loaded.")
-    # Verify original accuracy
+    # Baseline messen
     acc_orig = evaluate_model(model_orig, testloader, name="Original ResNet20")
 
-    # 3. Convert to KAN
+    # 3) Nach KAN konvertieren
     print("\n=== Converting to KAN ===")
     import copy
     model_to_convert = copy.deepcopy(model_orig)
@@ -78,10 +77,10 @@ def main():
     print("\nConverted Model Architecture:")
     print(model_kan)
     
-    # 4. Evaluate KAN
+    # 4) KAN-Modell auswerten
     acc_kan = evaluate_model(model_kan, testloader, name="Converted ResNet20 (KAN)")
 
-    # 5. Comparison
+    # 5) Ergebnisse vergleichen
     print("\n=== Comparison ===")
     print(f"Original Model Accuracy: {acc_orig:.2f}%")
     print(f"KAN Model Accuracy:      {acc_kan:.2f}%")

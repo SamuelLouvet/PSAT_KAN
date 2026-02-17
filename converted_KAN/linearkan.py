@@ -51,7 +51,7 @@ class LinearKAN(nn.Module):
                     f"Expected input features {self.in_features}, got {x.size(-1)}"
                 )
 
-        # KAN-style matmul: sum_i kan_multiply(x_i, w_ji)
+        # Gleiche Idee wie Linear-Layer: Produkte bilden und aufsummieren
         x_exp = x.unsqueeze(-2)
         out = self.sum_in(self.multiply(x_exp, self.weight))
         if self.bias is not None:
@@ -59,5 +59,5 @@ class LinearKAN(nn.Module):
         return out
 
 
-# Backward-compatible alias
+# Alias für alte Imports
 Linear = LinearKAN

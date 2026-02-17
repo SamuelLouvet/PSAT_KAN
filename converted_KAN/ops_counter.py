@@ -205,15 +205,14 @@ def count_ops(
     try:
         from .softmaxkan import MaxKAN
 
-        # Pass 1: trace + shape-prop without any fixed-n patching so we can infer
-        # the true tensor shapes at each MaxKAN call site.
+        # 1. Durchlauf: ohne fixed-n, damit wir echte Shapes je MaxKAN sehen.
         gm0 = fx.symbolic_trace(model)
         ShapeProp(gm0).propagate(example_input)
 
         patch_targets: Dict[str, int] = {}
         for node in gm0.graph.nodes:
-            # When MaxKAN is traced through, FX records the owning module in
-            # nn_module_stack; the actual reduction becomes a torch.amax call.
+            # Beim FX-Trace landet der Besitzer im nn_module_stack.
+            # Die eigentliche Reduktion taucht als torch.amax auf.
             if node.op != "call_function":
                 continue
             if node.target is not torch.amax:
@@ -234,14 +233,13 @@ def count_ops(
             if not in_shape:
                 continue
 
-            # MaxKAN uses dim=-1 in FX tracing mode; use that to infer n.
+            # In diesem Trace-Modus nutzt MaxKAN dim=-1, daraus holen wir n.
             n = int(in_shape[-1])
             if n <= 0:
                 continue
             patch_targets[str(owner_path)] = n
 
-        # Apply fixed-n reduction to the original model modules (by path) and record
-        # previous settings for restoration.
+        # fixed-n auf den Originalmodulen setzen und alte Werte merken.
         for path, n in patch_targets.items():
             try:
                 mod = model.get_submodule(path)
@@ -257,7 +255,7 @@ def count_ops(
     except Exception:
         fixed_max_modules = []
 
-    # Pass 2: trace + shape-prop with fixed-n MaxKAN enabled (where applicable).
+    # 2. Durchlauf: jetzt mit fixed-n (wo möglich) nochmal tracen.
     gm = fx.symbolic_trace(model)
     ShapeProp(gm).propagate(example_input)
 
@@ -276,7 +274,7 @@ def count_ops(
         if per_layer:
             stack = node.meta.get("nn_module_stack")
             if stack:
-                # Take the last module in the stack (closest owner).
+                # Letztes Modul im Stack = nächster Besitzer.
                 layer_name = list(stack.values())[-1][0]
 
         def _accumulate(field: str, value: int) -> None:

@@ -41,7 +41,7 @@ class AvgPool2dKAN(nn.Module):
         sH, sW = self.stride
         pH, pW = self.padding
 
-        # 1) Extract patches:
+        # 1) Fenster per unfold extrahieren
         # (B, C*kH*kW, L)
         patches = F.unfold(
             x,
@@ -50,21 +50,21 @@ class AvgPool2dKAN(nn.Module):
             stride=(sH, sW)
         )
 
-        # 2) Reshape to separate channels and patch elements:
+        # 2) In (Kanal, Position, Fensterwerte) umformen
         # (B, C, L, kH*kW)
         n = kH * kW
         patches = patches.view(B, C, n, -1)
         patches = patches.permute(0, 1, 3, 2)
 
-        # 3) Sum over window dimension (n) then scale by 1/n
-        # Result: (B, C, L)
+        # 3) Über Fenster summieren und danach teilen
+        # Ergebnis: (B, C, L)
         y = self.sum_window(patches)
 
         if self.count_include_pad:
             divisor = torch.full((1, 1, 1), float(n), device=x.device, dtype=x.dtype)
             y = self.division(y, divisor)
         else:
-            # Compute per-location element counts (ignoring padded zeros)
+            # Anzahl gültiger Werte pro Position (ohne Padding-Nullen)
             ones = torch.ones(
                 (1, 1, H, W), device=x.device, dtype=x.dtype
             )
@@ -77,7 +77,7 @@ class AvgPool2dKAN(nn.Module):
             counts = self.sum_counts(counts).view(1, 1, -1)  # (1, 1, L)
             y = self.division(y, counts)
 
-        # 4) Reshape to target spatial size
+        # 4) Wieder auf Zielgröße bringen
         H_out = (H + 2 * pH - kH) // sH + 1
         W_out = (W + 2 * pW - kW) // sW + 1
 

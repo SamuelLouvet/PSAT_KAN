@@ -89,15 +89,15 @@ def kan_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     Layer 2: Apply x² to each [unary function]
     Layer 3: Subtract and scale by 0.25 [addition + unary function]
     """
-    # Layer 1: additions
+    # Schritt 1: Summe und Differenz bilden
     sum_ab = a + b
     diff_ab = a - b
 
-    # Layer 2: unary function x²
+    # Schritt 2: quadrieren
     sum_sq = kan_square(sum_ab)
     diff_sq = kan_square(diff_ab)
 
-    # Layer 3: subtraction (addition) + unary scaling
+    # Schritt 3: Differenz der Quadrate und durch 4 skalieren
     diff_of_squares = sum_sq - diff_sq
     return kan_scale_quarter(diff_of_squares)
 
@@ -200,8 +200,8 @@ class MaxKAN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.fixed_reduce is not None:
-            # FX tracing: avoid any Python control-flow depending on Proxy values.
-            # MaxKAN tracing mode historically supports dim=-1 only.
+            # Für FX-Trace kein Python-Branching auf Proxy-Werten.
+            # In diesem Modus ist nur dim=-1 unterstützt.
             if not isinstance(x, torch.Tensor):
                 reduced = self.fixed_reduce(x)
                 return reduced.unsqueeze(-1) if self.keepdim else reduced
@@ -307,22 +307,22 @@ class SoftmaxKAN(nn.Module):
         Returns: softmax along specified dimension
         """
         if self.stable:
-            # Stable softmax: subtract max for numerical stability (KAN-style max)
+            # Stabiler Softmax: vorher Maximum abziehen
             x_max = self.max_op(x)
             x_shifted = x - x_max
         else:
             x_shifted = x
 
-        # Layer 1: exp (unary function)
+        # Schritt 1: exp anwenden
         exp_x = self.exp_op(x_shifted)
 
-        # Layer 2: sum (addition) + reciprocal preparation
+        # Schritt 2: Summe bilden (Nenner vorbereiten)
         sum_exp = self.sum_op(exp_x)
 
-        # Layer 3: division using KAN (exp_x / sum_exp)
+        # Schritt 3: Division im KAN-Stil
         return self.division(exp_x, sum_exp)
 
 
-# Backward-compatible alias
+# Aliasse für alte Imports
 Softmax = SoftmaxKAN
 Division = DivisionKAN
