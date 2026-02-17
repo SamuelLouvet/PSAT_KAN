@@ -105,7 +105,7 @@ class Conv2dKAN(nn.Module):
         pH, pW = self.padding
         dH, dW = self.dilation
 
-        # 1) Lokale Fenster mit unfold ziehen
+        # 1) Extract sliding local blocks
         patches = F.unfold(
             x,
             kernel_size=(kH, kW),
@@ -118,11 +118,11 @@ class Conv2dKAN(nn.Module):
         cin_g = self.in_channels // self.groups
         cout_g = self.out_channels // self.groups
 
-        # 2) In Gruppenform bringen (für MatMul)
+        # 2) Reshape for grouped matmul
         patches = patches.view(B, self.groups, cin_g * kH * kW, L)
         weight = self.weight.view(self.groups, cout_g, cin_g * kH * kW)
 
-        # 3) KAN-MatMul pro Gruppe rechnen
+        # 3) KAN-style matmul over each group
         # patches: (B, g, K, L), weight: (g, O, K)
         patches_exp = patches.unsqueeze(2)  # (B, g, 1, K, L)
         weight_exp = weight.unsqueeze(0).unsqueeze(-1)  # (1, g, O, K, 1)
@@ -131,12 +131,12 @@ class Conv2dKAN(nn.Module):
         if self.bias is not None:
             out = out + self.bias.view(self.groups, cout_g).unsqueeze(0).unsqueeze(-1)
 
-        # 4) Zurück auf Bild-Layout formen
+        # 4) Restore spatial layout
         H_out = (H + 2 * pH - dH * (kH - 1) - 1) // sH + 1
         W_out = (W + 2 * pW - dW * (kW - 1) - 1) // sW + 1
         out = out.reshape(B, self.out_channels, H_out, W_out)
         return out
 
 
-# Alias für alte Imports
+# Backward-compatible alias
 Conv2d = Conv2dKAN

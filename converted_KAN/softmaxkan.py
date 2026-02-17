@@ -89,15 +89,15 @@ def kan_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     Layer 2: Apply x² to each [unary function]
     Layer 3: Subtract and scale by 0.25 [addition + unary function]
     """
-    # Schritt 1: Summe und Differenz bilden
+    # Step 1: build sum and difference
     sum_ab = a + b
     diff_ab = a - b
 
-    # Schritt 2: quadrieren
+    # Step 2: square
     sum_sq = kan_square(sum_ab)
     diff_sq = kan_square(diff_ab)
 
-    # Schritt 3: Differenz der Quadrate und durch 4 skalieren
+    # Step 3: subtract squares and scale by 1/4
     diff_of_squares = sum_sq - diff_sq
     return kan_scale_quarter(diff_of_squares)
 
@@ -200,8 +200,8 @@ class MaxKAN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.fixed_reduce is not None:
-            # Für FX-Trace kein Python-Branching auf Proxy-Werten.
-            # In diesem Modus ist nur dim=-1 unterstützt.
+            # For FX tracing, avoid Python branching on Proxy values.
+            # In this mode, only dim=-1 is supported.
             if not isinstance(x, torch.Tensor):
                 reduced = self.fixed_reduce(x)
                 return reduced.unsqueeze(-1) if self.keepdim else reduced
@@ -307,22 +307,22 @@ class SoftmaxKAN(nn.Module):
         Returns: softmax along specified dimension
         """
         if self.stable:
-            # Stabiler Softmax: vorher Maximum abziehen
+            # Stable softmax: subtract max first
             x_max = self.max_op(x)
             x_shifted = x - x_max
         else:
             x_shifted = x
 
-        # Schritt 1: exp anwenden
+        # Step 1: apply exp
         exp_x = self.exp_op(x_shifted)
 
-        # Schritt 2: Summe bilden (Nenner vorbereiten)
+        # Step 2: compute sum (prepare denominator)
         sum_exp = self.sum_op(exp_x)
 
-        # Schritt 3: Division im KAN-Stil
+        # Step 3: divide in KAN style
         return self.division(exp_x, sum_exp)
 
 
-# Aliasse für alte Imports
+# Backward-compatible aliases
 Softmax = SoftmaxKAN
 Division = DivisionKAN

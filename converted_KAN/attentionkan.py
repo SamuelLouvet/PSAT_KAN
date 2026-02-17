@@ -72,27 +72,27 @@ def kan_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
     # a: (..., M, K)
     # b: (..., K, N)
-    # Ziel: Summe über k von a[..., i, k] * b[..., k, j]
+    # Goal: sum over k of a[..., i, k] * b[..., k, j]
 
-    # Dimensionen fürs Broadcasting erweitern
+    # Expand dims for broadcasting
     # a: (..., M, K, 1)
     # b: (..., 1, K, N)
     a_expanded = a.unsqueeze(-1)  # (..., M, K, 1)
     b_expanded = b.unsqueeze(-3)  # (..., 1, K, N)
 
-    # KAN-Produkt pro Elementpaar
-    # Schritt 1: Additionen
+    # KAN multiply for each element pair
+    # Step 1: additions
     sum_ab = a_expanded + b_expanded  # (..., M, K, N)
     diff_ab = a_expanded - b_expanded  # (..., M, K, N)
 
-    # Schritt 2: quadrieren
+    # Step 2: square
     sum_sq = kan_square(sum_ab)
     diff_sq = kan_square(diff_ab)
 
-    # Schritt 3: subtrahieren und skalieren
+    # Step 3: subtract and scale
     products = kan_scale_quarter(sum_sq - diff_sq)  # (..., M, K, N)
 
-    # Über K aufsummieren
+    # Sum across K dimension
     return products.sum(dim=-2)  # (..., M, N)
 
 
@@ -141,25 +141,25 @@ class AttentionKAN(nn.Module):
 
         assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
 
-        # Fester Skalierungsfaktor 1/sqrt(d_k)
+        # Constant scale factor 1/sqrt(d_k)
         self.scale = 1.0 / math.sqrt(self.head_dim)
         self.scale_op = ScaleKAN(self.scale)
 
-        # Q-, K-, V-Projektionen
+        # Q, K, V projections
         self.q_proj = LinearKAN(embed_dim, embed_dim, bias=bias)
         self.k_proj = LinearKAN(embed_dim, embed_dim, bias=bias)
         self.v_proj = LinearKAN(embed_dim, embed_dim, bias=bias)
 
-        # Ausgabeprojektion
+        # Output projection
         self.out_proj = LinearKAN(embed_dim, embed_dim, bias=bias)
 
-        # Softmax in KAN-Form
+        # KAN softmax
         self.softmax = SoftmaxKAN(dim=-1, eps=eps)
 
-        # Optionales Dropout
+        # Optional dropout
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
-        # MatMul im KAN-Stil
+        # KAN-style matmul
         self.matmul = MatMulKAN()
 
     def forward(
@@ -182,46 +182,46 @@ class AttentionKAN(nn.Module):
         B, S_q, E = query.shape
         S_k = key.shape[1]
 
-        # Schritt 1: Q, K, V berechnen
+        # Step 1: compute Q, K, V
         Q = self.q_proj(query)  # (B, S_q, E)
         K = self.k_proj(key)  # (B, S_k, E)
         V = self.v_proj(value)  # (B, S_k, E)
 
-        # Für Multi-Head umformen
+        # Reshape for multi-head attention
         # (B, S, E) -> (B, S, H, D) -> (B, H, S, D)
         Q = Q.view(B, S_q, self.num_heads, self.head_dim).transpose(1, 2)
         K = K.view(B, S_k, self.num_heads, self.head_dim).transpose(1, 2)
         V = V.view(B, S_k, self.num_heads, self.head_dim).transpose(1, 2)
 
-        # Schritt 2: Q @ K^T
+        # Step 2: Q @ K^T
         # Q: (B, H, S_q, D), K^T: (B, H, D, S_k)
         K_t = K.transpose(-2, -1)  # (B, H, D, S_k)
         attn_scores = self.matmul(Q, K_t)  # (B, H, S_q, S_k)
 
-        # Schritt 3: mit 1/sqrt(d_k) skalieren
+        # Step 3: scale by 1/sqrt(d_k)
         attn_scores = self.scale_op(attn_scores)
 
-        # Maske anwenden (falls da)
-        # Beim FX-Trace Proxy-Werte nicht in Python-Branching verwenden.
+        # Apply mask if provided
+        # For FX tracing, avoid Python branching on Proxy values.
         if attn_mask is not None and not isinstance(attn_mask, Proxy):
             if attn_mask.dim() == 2:
                 attn_mask = attn_mask.unsqueeze(0).unsqueeze(0)
             attn_scores = attn_scores + attn_mask
 
-        # Schritt 4: Softmax
+        # Step 4: softmax
         attn_weights = self.softmax(attn_scores)  # (B, H, S_q, S_k)
 
-        # Optionales Dropout
+        # Optional dropout
         attn_weights = self.dropout(attn_weights)
 
-        # Schritt 5: attn_weights @ V
+        # Step 5: attn_weights @ V
         # attn_weights: (B, H, S_q, S_k), V: (B, H, S_k, D)
         output = self.matmul(attn_weights, V)  # (B, H, S_q, D)
 
-        # Wieder zurück in (B, S_q, E)
+        # Reshape back to (B, S_q, E)
         output = output.transpose(1, 2).contiguous().view(B, S_q, E)
 
-        # Letzte lineare Projektion
+        # Final output projection
         output = self.out_proj(output)
 
         return output
@@ -244,6 +244,6 @@ class SelfAttentionKAN(AttentionKAN):
         return super().forward(x, x, x, attn_mask)
 
 
-# Aliasse für alte Imports
+# Backward-compatible aliases
 Attention = AttentionKAN
 SelfAttention = SelfAttentionKAN

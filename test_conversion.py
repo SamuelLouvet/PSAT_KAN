@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from converted_KAN.kan_converter import KanConverter
 
-# Gerät wählen (GPU falls verfügbar)
+# Select device (GPU if available)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
@@ -29,10 +29,10 @@ def evaluate_model(model, loader, name="Model"):
 def main():
     BATCH_SIZE = 128
     
-    # 1) Testdaten laden (nur CIFAR-10 Testsplit)
+    # 1) Load data (CIFAR-10 test split only)
     print("Preparing Data...")
     
-    # Standard-Normalisierung für CIFAR-10
+    # Standard CIFAR-10 normalization
     normalize = transforms.Normalize(
         mean=[0.4914, 0.4822, 0.4465],
         std=[0.2470, 0.2435, 0.2616]
@@ -48,9 +48,9 @@ def main():
     testloader = DataLoader(testset, batch_size=BATCH_SIZE,
                             shuffle=False, num_workers=0)
 
-    # 2) Vortrainiertes Modell laden
+    # 2) Load pretrained model
     print("\n=== Loading Pre-trained ResNet20 ===")
-    # Gleiche Quelle wie im Notebook
+    # Same source as in the notebook
     repo = "chenyaofo/pytorch-cifar-models"
     model_name = "cifar10_resnet20"
     
@@ -62,10 +62,10 @@ def main():
         return
 
     print("Original Model loaded.")
-    # Baseline messen
+    # Measure baseline accuracy
     acc_orig = evaluate_model(model_orig, testloader, name="Original ResNet20")
 
-    # 3) Nach KAN konvertieren
+    # 3) Convert to KAN
     print("\n=== Converting to KAN ===")
     import copy
     model_to_convert = copy.deepcopy(model_orig)
@@ -77,10 +77,10 @@ def main():
     print("\nConverted Model Architecture:")
     print(model_kan)
     
-    # 4) KAN-Modell auswerten
+    # 4) Evaluate KAN model
     acc_kan = evaluate_model(model_kan, testloader, name="Converted ResNet20 (KAN)")
 
-    # 5) Ergebnisse vergleichen
+    # 5) Compare results
     print("\n=== Comparison ===")
     print(f"Original Model Accuracy: {acc_orig:.2f}%")
     print(f"KAN Model Accuracy:      {acc_kan:.2f}%")

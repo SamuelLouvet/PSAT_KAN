@@ -60,7 +60,7 @@ class KanConverter:
         return kan_layer
 
     def _convert_maxpool2d(self, layer: nn.MaxPool2d) -> ReLUMaxPool2dKAN:
-        # Wir übernehmen nur Parameter, die das KAN-Pendant wirklich nutzt.
+        # Keep only parameters supported by the KAN counterpart.
         kan_layer = ReLUMaxPool2dKAN(
             kernel_size=layer.kernel_size,
             stride=layer.stride,
@@ -75,7 +75,7 @@ class KanConverter:
             bias=(layer.bias is not None)
         )
         
-        # Gewichte/Bias 1:1 übertragen
+        # Copy weights and bias as-is
         with torch.no_grad():
             kan_layer.weight.data = layer.weight.data.clone()
             if layer.bias is not None:

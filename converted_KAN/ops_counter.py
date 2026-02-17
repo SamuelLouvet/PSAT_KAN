@@ -205,14 +205,14 @@ def count_ops(
     try:
         from .softmaxkan import MaxKAN
 
-        # 1. Durchlauf: ohne fixed-n, damit wir echte Shapes je MaxKAN sehen.
+        # Pass 1: no fixed-n patching, so we can observe true MaxKAN shapes.
         gm0 = fx.symbolic_trace(model)
         ShapeProp(gm0).propagate(example_input)
 
         patch_targets: Dict[str, int] = {}
         for node in gm0.graph.nodes:
-            # Beim FX-Trace landet der Besitzer im nn_module_stack.
-            # Die eigentliche Reduktion taucht als torch.amax auf.
+            # In FX trace, owner information is recorded in nn_module_stack.
+            # The actual reduction appears as torch.amax.
             if node.op != "call_function":
                 continue
             if node.target is not torch.amax:
@@ -233,13 +233,13 @@ def count_ops(
             if not in_shape:
                 continue
 
-            # In diesem Trace-Modus nutzt MaxKAN dim=-1, daraus holen wir n.
+            # In this tracing mode MaxKAN uses dim=-1, so infer n from that.
             n = int(in_shape[-1])
             if n <= 0:
                 continue
             patch_targets[str(owner_path)] = n
 
-        # fixed-n auf den Originalmodulen setzen und alte Werte merken.
+        # Apply fixed-n to original modules and keep previous values.
         for path, n in patch_targets.items():
             try:
                 mod = model.get_submodule(path)
@@ -255,7 +255,7 @@ def count_ops(
     except Exception:
         fixed_max_modules = []
 
-    # 2. Durchlauf: jetzt mit fixed-n (wo möglich) nochmal tracen.
+    # Pass 2: trace again with fixed-n enabled where possible.
     gm = fx.symbolic_trace(model)
     ShapeProp(gm).propagate(example_input)
 
@@ -274,7 +274,7 @@ def count_ops(
         if per_layer:
             stack = node.meta.get("nn_module_stack")
             if stack:
-                # Letztes Modul im Stack = nächster Besitzer.
+                # Last module in the stack = closest owner.
                 layer_name = list(stack.values())[-1][0]
 
         def _accumulate(field: str, value: int) -> None:

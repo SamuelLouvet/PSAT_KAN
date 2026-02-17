@@ -20,7 +20,7 @@ def kan_pairwise_max(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     max(a, b) = b + relu(a - b)
     """
     diff = a - b
-    # clamp statt relu, damit FX-Trace über verschiedene dtypes stabil bleibt
+    # Use clamp instead of relu to keep FX tracing stable across dtypes
     relu_diff = torch.clamp(diff, 0, INT32_MAX)
     return b + relu_diff
 
@@ -77,25 +77,25 @@ def kan_max_reduce_last_dim(x: torch.Tensor) -> torch.Tensor:
     while x.size(-1) > 1:
         n = x.size(-1)
 
-        # Bei ungerader Länge letztes Element kurz parken
+        # For odd lengths, stash the last element
         if n % 2 == 1:
             last = x[..., -1:]
             x = x[..., :-1]
         else:
             last = None
 
-        # Werte paarweise nehmen
+        # Take elements in pairs
         a = x[..., 0::2]
         b = x[..., 1::2]
 
-        # Paarweises Maximum mit KAN-Aufbau
+        # Pairwise max via KAN construction
         x = kan_pairwise_max(a, b)
 
-        # Geparktes Element wieder anhängen (falls vorhanden)
+        # Append stashed element again if present
         if last is not None:
             x = torch.cat([x, last], dim=-1)
 
-    # Jetzt hat die letzte Dimension Länge 1
+    # Last dimension is now length 1
     return x.squeeze(-1)
 
 
@@ -157,7 +157,7 @@ class ReLUMaxPool2dKAN(nn.Module):
         sH, sW = self.stride
         pH, pW = self.padding
 
-        # 1) Fenster mit unfold extrahieren
+        # 1) Extract patches via unfold
         # (B, C*kH*kW, L)
         patches = F.unfold(
             x,
@@ -166,17 +166,17 @@ class ReLUMaxPool2dKAN(nn.Module):
             stride=(sH, sW)
         )
 
-        # 2) In passendes Format umformen
+        # 2) Reshape to expected format
         # (B, C, L, kH*kW)
         n = kH * kW
         patches = patches.view(B, C, n, -1)
         patches = patches.permute(0, 1, 3, 2)
 
-        # 3) Maximum über Fensterdimension mit KAN-Paarvergleich
-        # Ergebnis: (B, C, L)
+        # 3) Compute max over window dimension with pairwise KAN max
+        # Result: (B, C, L)
         y = self.window_max(patches)
 
-        # 4) Zurück auf Zielgröße formen
+        # 4) Reshape to output spatial size
         H_out = (H + 2 * pH - kH) // sH + 1
         W_out = (W + 2 * pW - kW) // sW + 1
 
@@ -184,5 +184,5 @@ class ReLUMaxPool2dKAN(nn.Module):
         return y
 
 
-# Alias für alte Imports
+# Backward-compatible alias
 ReLUMaxPool2d = ReLUMaxPool2dKAN
