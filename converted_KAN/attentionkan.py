@@ -141,7 +141,7 @@ class AttentionKAN(nn.Module):
 
         assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
 
-        # Constant scale factor 1/sqrt(d_k)
+        # Scale factor: 1/sqrt(d_k) as a constant for unary scaling
         self.scale = 1.0 / math.sqrt(self.head_dim)
         self.scale_op = ScaleKAN(self.scale)
 
@@ -153,7 +153,7 @@ class AttentionKAN(nn.Module):
         # Output projection
         self.out_proj = LinearKAN(embed_dim, embed_dim, bias=bias)
 
-        # KAN softmax
+        # KAN Softmax
         self.softmax = SoftmaxKAN(dim=-1, eps=eps)
 
         # Optional dropout
